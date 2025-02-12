@@ -1,7 +1,7 @@
 # Copyright (c) 2024 ETH Zurich and the authors of the qttools package.
 
 from contextlib import nullcontext
-
+import sys
 import pytest
 from mpi4py.MPI import COMM_WORLD as comm
 
@@ -9,15 +9,55 @@ from qttools import NDArray, sparse, xp
 from qttools.datastructures.dsbsparse import DSBSparse, _block_view
 from qttools.utils.mpi_utils import get_section_sizes
 
+cuda_avail = False
+if "torch" in sys.modules:
+    import torch
 
-def _create_coo(sizes: NDArray) -> sparse.coo_matrix:
+    if torch.cuda.is_available():
+        cuda_avail = True
+
+DEBUG_PRINTS = False
+
+
+def _create_coo(sizes: NDArray, dtype=xp.complex128) -> sparse.coo_matrix:
     """Returns a random complex sparse array."""
     size = int(xp.sum(sizes))
     rng = xp.random.default_rng()
     density = rng.uniform(low=0.1, high=0.3)
-    coo = sparse.random(size, size, density=density, format="coo").astype(xp.complex128)
-    coo.data += 1j * rng.uniform(size=coo.nnz)
+    coo = sparse.random(size, size, density=density, format="coo").astype(dtype)
+    if dtype == xp.complex128:
+        coo.data += 1j * rng.uniform(size=coo.nnz)
     return coo
+
+
+if cuda_avail:
+
+    def create_dense_band_matrix(
+        N, r, device="cuda", dtype=torch.float64, seed: int = 0, fixed_val=None
+    ):
+
+        # Create indices for all positions
+        i, j = torch.meshgrid(
+            torch.arange(N, device=device),
+            torch.arange(N, device=device),
+            indexing="ij",
+        )
+
+        # Create band mask
+        mask = torch.abs(i - j) <= r
+
+        # Create random matrix and apply mask
+        if fixed_val is not None:
+            A = torch.full((N, N), fixed_val, device=device, dtype=dtype) * mask
+        else:
+            A = torch.randn(N, N, device=device, dtype=dtype) * mask
+
+        if dtype == torch.complex128:
+            A += 1j * A
+        A_np = A.detach().cpu().numpy()
+        A_cupy = xp.array(A_np)
+
+        return sparse.coo_matrix(A_cupy)
 
 
 @pytest.mark.usefixtures("densify_blocks")
@@ -173,7 +213,7 @@ class TestAccess:
         )
         dense = dsbsparse.to_dense()
 
-        reference = dense[..., *accessed_element]
+        reference = dense[(..., *accessed_element)]
         assert xp.allclose(reference, dsbsparse[accessed_element])
 
     @pytest.mark.usefixtures("num_inds")
@@ -223,7 +263,7 @@ class TestAccess:
 
         dsbsparse[accessed_element] = 42
 
-        dense[..., *accessed_element][dense[..., *accessed_element].nonzero()] = 42
+        dense[(..., *accessed_element)][dense[(..., *accessed_element)].nonzero()] = 42
         assert xp.allclose(dense, dsbsparse.to_dense())
 
     @pytest.mark.usefixtures("accessed_block")
@@ -244,7 +284,7 @@ class TestAccess:
         dense = dsbsparse.to_dense()
 
         inds, in_bounds = _get_block_inds(accessed_block, block_sizes)
-        reference_block = dense[..., *inds]
+        reference_block = dense[(..., *inds)]
 
         with pytest.raises(IndexError) if not in_bounds else nullcontext():
             assert xp.allclose(reference_block, dsbsparse.blocks[accessed_block])
@@ -267,7 +307,7 @@ class TestAccess:
         dense = dsbsparse.to_dense()
 
         inds, in_bounds = _get_block_inds(accessed_block, block_sizes)
-        reference_block = dense[..., *inds]
+        reference_block = dense[(..., *inds)]
 
         # We want to get sparse blocks.
         dsbsparse.return_dense = False
@@ -315,14 +355,14 @@ class TestAccess:
         inds, in_bounds = _get_block_inds(accessed_block, block_sizes)
 
         with pytest.raises(IndexError) if not in_bounds else nullcontext():
-            dsbsparse.blocks[accessed_block] = xp.ones_like(dense[..., *inds])
+            dsbsparse.blocks[accessed_block] = xp.ones_like(dense[(..., *inds)])
 
         if densify_blocks is not None and accessed_block in densify_blocks:
             # Sparsity structure should be modified.
-            assert (dsbsparse.to_dense()[..., *inds] == 1).all()
+            assert (dsbsparse.to_dense()[(..., *inds)] == 1).all()
         else:
             # Sparsity structure should not be modified.
-            dense[..., *inds][dense[..., *inds].nonzero()] = 1
+            dense[(..., *inds)][dense[(..., *inds)].nonzero()] = 1
             assert xp.allclose(dense, dsbsparse.to_dense())
 
     @pytest.mark.usefixtures("accessed_block", "stack_index")
@@ -649,6 +689,60 @@ class TestArithmetic:
 
         assert xp.allclose(dense @ dense, (dsbsparse @ dsbsparse).to_dense())
 
+    def test_matmul_banded(
+        self,
+        dsbsparse_type: DSBSparse,
+        block_sizes: NDArray,
+        global_stack_shape: tuple,
+        densify_blocks: list[tuple] | None,
+        band_r: int = 2,
+    ):
+        """
+        Tests the banded matrix multiplication of a DSBCOO matrix.
+        It currently works ONLY for:
+        - DBSCOO format (no support for DSBCSR. A minor thing, can be easily
+            implemented)
+        - square matrices
+        - needs pytorch and CUDA
+        """
+
+        if "COO" not in dsbsparse_type.__name__:
+            return
+        if not cuda_avail:
+            return
+        band_N = int(sum(block_sizes))
+        coo = create_dense_band_matrix(band_N, band_r, dtype=torch.float32)
+
+        dsbsparse = dsbsparse_type.from_sparray(
+            coo, block_sizes, global_stack_shape, densify_blocks
+        )
+        dense = dsbsparse.to_dense()
+        ref_result = torch.tensor(dense @ dense)
+
+        sparse_result = (dsbsparse @ dsbsparse).to_dense()
+
+        if DEBUG_PRINTS:
+            # print test parameters
+            print(
+                f"dsbsparse_type: {dsbsparse_type}, block_sizes: {block_sizes}, \
+                global_stack_shape: {global_stack_shape}, \
+                densify_blocks: {densify_blocks}, band_r: {band_r}"
+            )
+
+            if xp.allclose(ref_result, sparse_result, rtol=1e-2, atol=1e-2):
+                print("Verification passed!")
+            else:
+                print("Verification failed!")
+                print("ref_result:\n", ref_result[0].detach().cpu().numpy()[:16, :16])
+                print(
+                    "sparse_result:\n",
+                    sparse_result[0].detach().cpu().numpy()[:16, :16],
+                )
+                exit()
+        else:
+            # smaller required precision, since band matmul is in mixed precision
+            assert xp.allclose(ref_result, sparse_result, rtol=1e-2, atol=1e-2)
+
 
 # Shape of the dense array.
 ARRAY_SHAPE = (12, 10, 30)
@@ -689,7 +783,7 @@ def test_block_view(array: NDArray, axis: int, num_blocks: int):
             index = [slice(None)] * array.ndim
             size = array.shape[axis] // num_blocks
             index[axis] = slice(i * size, (i + 1) * size)
-            assert (array[*index] == view[i]).all()
+            assert (array[(*index,)] == view[i]).all()
 
 
 @pytest.mark.mpi(min_size=2)
@@ -760,7 +854,7 @@ class TestDistribution:
         dsbsparse = dsbsparse_type.from_sparray(coo, block_sizes, global_stack_shape)
         dense = dsbsparse.to_dense()
 
-        reference = dense[..., *accessed_element]
+        reference = dense[(..., *accessed_element)]
         print(dsbsparse[accessed_element].shape, flush=True) if comm.rank == 0 else None
         print(reference.shape, flush=True) if comm.rank == 0 else None
 
@@ -783,7 +877,7 @@ class TestDistribution:
 
         dsbsparse[accessed_element] = 42
 
-        dense[..., *accessed_element][dense[..., *accessed_element].nonzero()] = 42
+        dense[(..., *accessed_element)][dense[(..., *accessed_element)].nonzero()] = 42
         assert xp.allclose(dense, dsbsparse.to_dense())
 
     @pytest.mark.usefixtures("accessed_element")
@@ -804,7 +898,7 @@ class TestDistribution:
         row, col, __ = _unsign_index(*accessed_element, dense.shape[-1])
         ind = xp.where((rows == row) & (cols == col))[0]
 
-        reference = dense[..., *accessed_element].flatten()[0]
+        reference = dense[(..., *accessed_element)].flatten()[0]
 
         dsbsparse.dtranspose()
 
@@ -840,7 +934,7 @@ class TestDistribution:
         if len(ind) == 0:
             return
 
-        dense[..., *accessed_element][dense[..., *accessed_element].nonzero()] = 42
+        dense[(..., *accessed_element)][dense[(..., *accessed_element)].nonzero()] = 42
 
         dsbsparse.dtranspose()
 
@@ -849,3 +943,82 @@ class TestDistribution:
         dsbsparse.dtranspose()
 
         assert xp.allclose(dense, dsbsparse.to_dense())
+
+
+def run_standalone_matmul_test():
+    # create an instance of the test class
+    from qttools import NDArray, xp
+    from qttools.datastructures import DSBCOO, DSBCSR, DSBSparse
+
+    DSBSPARSE_TYPES = [DSBCOO]
+
+    BLOCK_SIZES = [
+        xp.array([2] * 16),
+        xp.array([2] * 3 + [4] * 2 + [2] * 3),
+        xp.array([2] * 64),
+    ]
+
+    DENSIFY_BLOCKS = [
+        None,
+        [(0, 0), (-1, -1)],
+        [(2, 4)],
+    ]
+
+    ACCESSED_BLOCKS = [
+        (0, 0),
+        (-1, -1),
+        (2, 4),
+        (-9, 3),
+    ]
+
+    ACCESSED_ELEMENTS = [
+        (0, 0),
+        (-1, -1),
+        (2, -7),
+    ]
+
+    GLOBAL_STACK_SHAPES = [
+        (1,),
+        (10,),
+        (7, 2),
+        (9, 2, 4),
+    ]
+
+    NUM_INDS = [
+        5,
+        10,
+        20,
+    ]
+
+    STACK_INDICES = [
+        (5,),
+        (slice(1, 4),),
+        (Ellipsis,),
+    ]
+
+    BLOCK_CHANGE_FACTORS = [
+        1.0,
+        0.5,
+        2.0,
+    ]
+
+    for dbsparse_type in DSBSPARSE_TYPES:
+        for block_size in BLOCK_SIZES:
+            for global_stack_shape in GLOBAL_STACK_SHAPES:
+                for densify_blocks in DENSIFY_BLOCKS:
+                    TestArithmetic().test_matmul_banded(
+                        dbsparse_type,
+                        block_size,
+                        global_stack_shape,
+                        densify_blocks,
+                    )
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    # setup print options for numpy and torch
+    np.set_printoptions(threshold=np.inf, linewidth=np.inf, precision=2)
+    torch.set_printoptions(precision=2, sci_mode=False, linewidth=500)
+    # Run the standalone tests
+    run_standalone_matmul_test()
