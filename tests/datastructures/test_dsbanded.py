@@ -14,7 +14,8 @@ def _create_coo(sizes: NDArray) -> sparse.coo_matrix:
     """Returns a random complex sparse array."""
     size = int(xp.sum(sizes))
     rng = xp.random.default_rng()
-    density = rng.uniform(low=0.1, high=0.3)
+    density = rng.uniform(low=0.5, high=0.8)
+    # density = rng.uniform(low=0.1, high=0.3)
     coo = sparse.random(size, size, density=density, format="coo").astype(xp.complex128)
     coo.data += 1j * rng.uniform(size=coo.nnz)
     return coo
@@ -26,31 +27,31 @@ class TestCreation:
 
     def test_from_sparray(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: int | tuple,
         densify_blocks: list[tuple] | None,
     ):
         """Tests the creation of DSBSparse matrices from sparse arrays."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
         assert xp.array_equiv(coo.toarray(), dsbsparse.to_dense())
 
     def test_zeros_like(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: int | tuple,
         densify_blocks: list[tuple] | None,
     ):
         """Tests the creation of a zero DSBSparse matrix with the same shape as another."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
-        zeros = dsbsparse_type.zeros_like(dsbsparse)
+        zeros = dsbanded_type.zeros_like(dsbsparse)
         assert (zeros.to_dense() == 0).all()
 
 
@@ -105,7 +106,7 @@ class TestConversion:
 
     def test_to_dense(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
     ):
@@ -113,7 +114,7 @@ class TestConversion:
         coo = _create_coo(block_sizes)
 
         reference = xp.broadcast_to(coo.toarray(), global_stack_shape + coo.shape)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -123,7 +124,7 @@ class TestConversion:
 
     def test_ltranspose(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
     ):
@@ -133,7 +134,7 @@ class TestConversion:
         dense = xp.broadcast_to(coo.toarray(), global_stack_shape + coo.shape)
         reference = xp.swapaxes(dense, -2, -1)
 
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -159,14 +160,14 @@ class TestAccess:
     @pytest.mark.usefixtures("accessed_element")
     def test_getitem(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         accessed_element: tuple,
     ):
         """Tests that we can get individual matrix elements."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -179,14 +180,14 @@ class TestAccess:
     @pytest.mark.usefixtures("num_inds")
     def test_getitem_with_array(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         num_inds: int,
     ):
         """Tests that we can get multiple matrix elements at once."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -207,14 +208,14 @@ class TestAccess:
     @pytest.mark.usefixtures("accessed_element")
     def test_setitem(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         accessed_element: tuple,
     ):
         """Tests that we can set individual matrix elements."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -223,20 +224,22 @@ class TestAccess:
 
         dsbsparse[accessed_element] = 42
 
-        dense[..., *accessed_element][dense[..., *accessed_element].nonzero()] = 42
+        # NOTE: Banded datastructures are not sparse and they will write outside the original sparsity pattern.
+        # dense[..., *accessed_element][dense[..., *accessed_element].nonzero()] = 42
+        dense[..., *accessed_element] = 42
         assert xp.allclose(dense, dsbsparse.to_dense())
 
     @pytest.mark.usefixtures("accessed_block")
     def test_get_block(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         accessed_block: tuple,
     ):
         """Tests that we can get the correct block."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -249,66 +252,64 @@ class TestAccess:
         with pytest.raises(IndexError) if not in_bounds else nullcontext():
             assert xp.allclose(reference_block, dsbsparse.blocks[accessed_block])
 
+    # @pytest.mark.usefixtures("accessed_block")
+    # def test_get_sparse_block(
+    #     self,
+    #     dsbanded_type: DSBSparse,
+    #     block_sizes: NDArray,
+    #     global_stack_shape: tuple,
+    #     accessed_block: tuple,
+    # ):
+    #     """Tests that we can get the correct block."""
+    #     coo = _create_coo(block_sizes)
+    #     dsbsparse = dsbanded_type.from_sparray(
+    #         coo,
+    #         block_sizes=block_sizes,
+    #         global_stack_shape=global_stack_shape,
+    #     )
+    #     dense = dsbsparse.to_dense()
+
+    #     inds, in_bounds = _get_block_inds(accessed_block, block_sizes)
+    #     reference_block = dense[..., *inds]
+
+    #     # We want to get sparse blocks.
+    #     dsbsparse.return_dense = False
+
+    #     with pytest.raises(IndexError) if not in_bounds else nullcontext():
+    #         if "CSR" in dsbanded_type.__name__:
+    #             rowptr, cols, data = dsbsparse.blocks[accessed_block]
+    #             for ind in xp.ndindex(reference_block.shape[:-2]):
+    #                 block = sparse.csr_matrix(
+    #                     (data[ind], cols, rowptr),
+    #                     shape=reference_block.shape[-2:],
+    #                 )
+    #                 assert xp.allclose(reference_block[ind], block.toarray())
+
+    #         elif "COO" in dsbanded_type.__name__:
+    #             rows, cols, data = dsbsparse.blocks[accessed_block]
+    #             for ind in xp.ndindex(reference_block.shape[:-2]):
+    #                 block = sparse.coo_matrix(
+    #                     (data[ind], (rows, cols)), shape=reference_block.shape[-2:]
+    #                 )
+    #                 assert xp.allclose(reference_block[ind], block.toarray())
+
+    #         else:
+    #             raise ValueError("Unknown DSBSparse type.")
+
     @pytest.mark.usefixtures("accessed_block")
-    def test_get_sparse_block(
-        self,
-        dsbsparse_type: DSBSparse,
-        block_sizes: NDArray,
-        global_stack_shape: tuple,
-        accessed_block: tuple,
-    ):
-        """Tests that we can get the correct block."""
-        coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
-            coo,
-            block_sizes=block_sizes,
-            global_stack_shape=global_stack_shape,
-        )
-        dense = dsbsparse.to_dense()
-
-        inds, in_bounds = _get_block_inds(accessed_block, block_sizes)
-        reference_block = dense[..., *inds]
-
-        # We want to get sparse blocks.
-        dsbsparse.return_dense = False
-
-        with pytest.raises(IndexError) if not in_bounds else nullcontext():
-            if "CSR" in dsbsparse_type.__name__:
-                rowptr, cols, data = dsbsparse.blocks[accessed_block]
-                for ind in xp.ndindex(reference_block.shape[:-2]):
-                    block = sparse.csr_matrix(
-                        (data[ind], cols, rowptr),
-                        shape=reference_block.shape[-2:],
-                    )
-                    assert xp.allclose(reference_block[ind], block.toarray())
-
-            elif "COO" in dsbsparse_type.__name__:
-                rows, cols, data = dsbsparse.blocks[accessed_block]
-                for ind in xp.ndindex(reference_block.shape[:-2]):
-                    block = sparse.coo_matrix(
-                        (data[ind], (rows, cols)), shape=reference_block.shape[-2:]
-                    )
-                    assert xp.allclose(reference_block[ind], block.toarray())
-
-            else:
-                raise ValueError("Unknown DSBSparse type.")
-
-    @pytest.mark.usefixtures("accessed_block", "densify_blocks")
     def test_set_block(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
-        densify_blocks: list[tuple] | None,
         accessed_block: tuple,
     ):
-        """Tests that we can set a block and not modify sparsity structure."""
+        """Tests that we can set a block."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
-            densify_blocks=densify_blocks,
         )
         dense = dsbsparse.to_dense()
 
@@ -317,18 +318,13 @@ class TestAccess:
         with pytest.raises(IndexError) if not in_bounds else nullcontext():
             dsbsparse.blocks[accessed_block] = xp.ones_like(dense[..., *inds])
 
-        if densify_blocks is not None and accessed_block in densify_blocks:
-            # Sparsity structure should be modified.
-            assert (dsbsparse.to_dense()[..., *inds] == 1).all()
-        else:
-            # Sparsity structure should not be modified.
-            dense[..., *inds][dense[..., *inds].nonzero()] = 1
-            assert xp.allclose(dense, dsbsparse.to_dense())
+        # Sparsity structure should be modified.
+        assert (dsbsparse.to_dense()[..., *inds] == 1).all()
 
     @pytest.mark.usefixtures("accessed_block", "stack_index")
     def test_get_block_substack(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         accessed_block: tuple,
@@ -336,7 +332,7 @@ class TestAccess:
     ):
         """Tests that we can get the correct block from a substack."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -355,73 +351,71 @@ class TestAccess:
                 reference_block, dsbsparse.stack[stack_index].blocks[accessed_block]
             )
 
+    # @pytest.mark.usefixtures("accessed_block", "stack_index")
+    # def test_get_sparse_block_substack(
+    #     self,
+    #     dsbanded_type: DSBSparse,
+    #     block_sizes: NDArray,
+    #     global_stack_shape: tuple,
+    #     accessed_block: tuple,
+    #     stack_index: tuple,
+    # ):
+    #     """Tests that we can get the correct block from a substack."""
+    #     coo = _create_coo(block_sizes)
+    #     dsbsparse = dsbanded_type.from_sparray(
+    #         coo,
+    #         block_sizes=block_sizes,
+    #         global_stack_shape=global_stack_shape,
+    #     )
+    #     dense = dsbsparse.to_dense()
+
+    #     inds, in_bounds = _get_block_inds(accessed_block, block_sizes)
+    #     inds = (
+    #         stack_index
+    #         + (slice(None),) * (len(global_stack_shape) - len(stack_index))
+    #         + inds
+    #     )
+    #     reference_block = dense[inds]
+
+    #     # We want to get sparse blocks.
+    #     dsbsparse.return_dense = False
+
+    #     with pytest.raises(IndexError) if not in_bounds else nullcontext():
+    #         if "CSR" in dsbanded_type.__name__:
+    #             rowptr, cols, data = dsbsparse.stack[stack_index].blocks[accessed_block]
+    #             for ind in xp.ndindex(reference_block.shape[:-2]):
+    #                 block = sparse.csr_matrix(
+    #                     (data[ind], cols, rowptr),
+    #                     shape=reference_block.shape[-2:],
+    #                 )
+    #                 assert xp.allclose(reference_block[ind], block.toarray())
+
+    #         elif "COO" in dsbanded_type.__name__:
+    #             rows, cols, data = dsbsparse.stack[stack_index].blocks[accessed_block]
+    #             for ind in xp.ndindex(reference_block.shape[:-2]):
+    #                 block = sparse.coo_matrix(
+    #                     (data[ind], (rows, cols)), shape=reference_block.shape[-2:]
+    #                 )
+    #                 assert xp.allclose(reference_block[ind], block.toarray())
+
+    #         else:
+    #             raise ValueError("Unknown DSBSparse type.")
+
     @pytest.mark.usefixtures("accessed_block", "stack_index")
-    def test_get_sparse_block_substack(
-        self,
-        dsbsparse_type: DSBSparse,
-        block_sizes: NDArray,
-        global_stack_shape: tuple,
-        accessed_block: tuple,
-        stack_index: tuple,
-    ):
-        """Tests that we can get the correct block from a substack."""
-        coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
-            coo,
-            block_sizes=block_sizes,
-            global_stack_shape=global_stack_shape,
-        )
-        dense = dsbsparse.to_dense()
-
-        inds, in_bounds = _get_block_inds(accessed_block, block_sizes)
-        inds = (
-            stack_index
-            + (slice(None),) * (len(global_stack_shape) - len(stack_index))
-            + inds
-        )
-        reference_block = dense[inds]
-
-        # We want to get sparse blocks.
-        dsbsparse.return_dense = False
-
-        with pytest.raises(IndexError) if not in_bounds else nullcontext():
-            if "CSR" in dsbsparse_type.__name__:
-                rowptr, cols, data = dsbsparse.stack[stack_index].blocks[accessed_block]
-                for ind in xp.ndindex(reference_block.shape[:-2]):
-                    block = sparse.csr_matrix(
-                        (data[ind], cols, rowptr),
-                        shape=reference_block.shape[-2:],
-                    )
-                    assert xp.allclose(reference_block[ind], block.toarray())
-
-            elif "COO" in dsbsparse_type.__name__:
-                rows, cols, data = dsbsparse.stack[stack_index].blocks[accessed_block]
-                for ind in xp.ndindex(reference_block.shape[:-2]):
-                    block = sparse.coo_matrix(
-                        (data[ind], (rows, cols)), shape=reference_block.shape[-2:]
-                    )
-                    assert xp.allclose(reference_block[ind], block.toarray())
-
-            else:
-                raise ValueError("Unknown DSBSparse type.")
-
-    @pytest.mark.usefixtures("accessed_block", "densify_blocks", "stack_index")
     def test_set_block_substack(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
-        densify_blocks: list[tuple] | None,
         accessed_block: tuple,
         stack_index: tuple,
     ):
         """Tests that we can set a block in a substack and not modify sparsity structure."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
-            densify_blocks=densify_blocks,
         )
         dense = dsbsparse.to_dense()
 
@@ -437,25 +431,20 @@ class TestAccess:
                 dense[inds]
             )
 
-        if densify_blocks is not None and accessed_block in densify_blocks:
-            # Sparsity structure should be modified.
-            assert (dsbsparse.to_dense()[inds] == 1).all()
-        else:
-            # Sparsity structure should not be modified.
-            dense[inds][dense[inds].nonzero()] = 1
-            assert xp.allclose(dense, dsbsparse.to_dense())
+        # Sparsity structure should be modified.
+        assert (dsbsparse.to_dense()[inds] == 1).all()
 
     @pytest.mark.usefixtures("block_change_factor")
     def test_block_sizes_setter(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         block_change_factor: float,
     ):
         """Tests that we can update the block sizes correctly."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -463,7 +452,7 @@ class TestAccess:
         # Create new block sizes.
         updated_block_sizes = _create_new_block_sizes(block_sizes, block_change_factor)
         # Create a new DSBSparse matrix with the updated block sizes.
-        dsbsparse_updated_block_sizes = dsbsparse_type.from_sparray(
+        dsbsparse_updated_block_sizes = dsbanded_type.from_sparray(
             coo,
             block_sizes=updated_block_sizes,
             global_stack_shape=global_stack_shape,
@@ -477,13 +466,13 @@ class TestAccess:
 
     def test_spy(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
     ):
         """Tests that we can get the correct sparsity pattern."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -500,13 +489,13 @@ class TestAccess:
 
     def test_diagonal(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
     ):
         """Tests that we can get the correct diagonal elements."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo,
             block_sizes=block_sizes,
             global_stack_shape=global_stack_shape,
@@ -523,14 +512,14 @@ class TestArithmetic:
 
     def test_iadd(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         densify_blocks: list[tuple] | None,
     ):
         """Tests the in-place addition of a DSBSparse matrix."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
         dense = dsbsparse.to_dense()
@@ -541,14 +530,14 @@ class TestArithmetic:
 
     def test_iadd_coo(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         densify_blocks: list[tuple] | None,
     ):
         """Tests the in-place addition of a DSBSparse matrix with a COO matrix."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
 
@@ -558,7 +547,7 @@ class TestArithmetic:
 
     def test_isub(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         densify_blocks: list[tuple] | None,
@@ -566,12 +555,12 @@ class TestArithmetic:
         """Tests the in-place subtraction of a DSBSparse matrix."""
         coo = _create_coo(block_sizes)
 
-        dsbsparse_1 = dsbsparse_type.from_sparray(
+        dsbsparse_1 = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
         dense_1 = dsbsparse_1.to_dense()
 
-        dsbsparse_2 = dsbsparse_type.from_sparray(
+        dsbsparse_2 = dsbanded_type.from_sparray(
             2 * coo, block_sizes, global_stack_shape, densify_blocks
         )
         dense_2 = dsbsparse_2.to_dense()
@@ -582,7 +571,7 @@ class TestArithmetic:
 
     def test_isub_coo(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         densify_blocks: list[tuple] | None,
@@ -590,7 +579,7 @@ class TestArithmetic:
         """Tests the in-place subtraction of a DSBSparse matrix with a COO matrix."""
         coo = _create_coo(block_sizes)
 
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
         dense = dsbsparse.to_dense()
@@ -601,14 +590,14 @@ class TestArithmetic:
 
     def test_imul(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         densify_blocks: list[tuple] | None,
     ):
         """Tests the in-place multiplication of a DSBSparse matrix."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
         dense = dsbsparse.to_dense()
@@ -619,14 +608,14 @@ class TestArithmetic:
 
     def test_neg(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         densify_blocks: list[tuple] | None,
     ):
         """Tests the negation of a DSBSparse matrix."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
         dense = dsbsparse.to_dense()
@@ -635,14 +624,14 @@ class TestArithmetic:
 
     def test_matmul(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         densify_blocks: list[tuple] | None,
     ):
         """Tests the matrix multiplication of a DSBSparse matrix."""
         coo = _create_coo(block_sizes)
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
         dense = dsbsparse.to_dense()
@@ -699,7 +688,7 @@ class TestDistribution:
     @pytest.mark.usefixtures("densify_blocks")
     def test_from_sparray(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         densify_blocks: list[tuple] | None,
@@ -708,7 +697,7 @@ class TestDistribution:
         coo = _create_coo(block_sizes) if comm.rank == 0 else None
         coo: sparse.coo_matrix = comm.bcast(coo, root=0)
 
-        dsbsparse = dsbsparse_type.from_sparray(
+        dsbsparse = dsbanded_type.from_sparray(
             coo, block_sizes, global_stack_shape, densify_blocks
         )
         assert xp.array_equiv(coo.toarray(), dsbsparse.to_dense())
@@ -720,7 +709,7 @@ class TestDistribution:
 
     def test_dtranspose(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
     ):
@@ -728,7 +717,7 @@ class TestDistribution:
         coo = _create_coo(block_sizes) if comm.rank == 0 else None
         coo: sparse.coo_matrix = comm.bcast(coo, root=0)
 
-        dsbsparse = dsbsparse_type.from_sparray(coo, block_sizes, global_stack_shape)
+        dsbsparse = dsbanded_type.from_sparray(coo, block_sizes, global_stack_shape)
         assert dsbsparse.distribution_state == "stack"
 
         original_data = dsbsparse._data.copy()
@@ -748,7 +737,7 @@ class TestDistribution:
     @pytest.mark.usefixtures("accessed_element")
     def test_getitem_stack(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         accessed_element: tuple,
@@ -757,7 +746,7 @@ class TestDistribution:
         coo = _create_coo(block_sizes) if comm.rank == 0 else None
         coo: sparse.coo_matrix = comm.bcast(coo, root=0)
 
-        dsbsparse = dsbsparse_type.from_sparray(coo, block_sizes, global_stack_shape)
+        dsbsparse = dsbanded_type.from_sparray(coo, block_sizes, global_stack_shape)
         dense = dsbsparse.to_dense()
 
         reference = dense[..., *accessed_element]
@@ -769,7 +758,7 @@ class TestDistribution:
     @pytest.mark.usefixtures("accessed_element")
     def test_setitem_stack(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         accessed_element: tuple,
@@ -778,7 +767,7 @@ class TestDistribution:
         coo = _create_coo(block_sizes) if comm.rank == 0 else None
         coo: sparse.coo_matrix = comm.bcast(coo, root=0)
 
-        dsbsparse = dsbsparse_type.from_sparray(coo, block_sizes, global_stack_shape)
+        dsbsparse = dsbanded_type.from_sparray(coo, block_sizes, global_stack_shape)
         dense = dsbsparse.to_dense()
 
         dsbsparse[accessed_element] = 42
@@ -789,7 +778,7 @@ class TestDistribution:
     @pytest.mark.usefixtures("accessed_element")
     def test_getitem_nnz(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         accessed_element: tuple,
@@ -798,7 +787,7 @@ class TestDistribution:
         coo = _create_coo(block_sizes) if comm.rank == 0 else None
         coo: sparse.coo_matrix = comm.bcast(coo, root=0)
 
-        dsbsparse = dsbsparse_type.from_sparray(coo, block_sizes, global_stack_shape)
+        dsbsparse = dsbanded_type.from_sparray(coo, block_sizes, global_stack_shape)
         dense = dsbsparse.to_dense()
         rows, cols = dsbsparse.spy()
         row, col, __ = _unsign_index(*accessed_element, dense.shape[-1])
@@ -822,7 +811,7 @@ class TestDistribution:
     @pytest.mark.usefixtures("accessed_element")
     def test_setitem_nnz(
         self,
-        dsbsparse_type: DSBSparse,
+        dsbanded_type: DSBSparse,
         block_sizes: NDArray,
         global_stack_shape: tuple,
         accessed_element: tuple,
@@ -831,7 +820,7 @@ class TestDistribution:
         coo = _create_coo(block_sizes) if comm.rank == 0 else None
         coo: sparse.coo_matrix = comm.bcast(coo, root=0)
 
-        dsbsparse = dsbsparse_type.from_sparray(coo, block_sizes, global_stack_shape)
+        dsbsparse = dsbanded_type.from_sparray(coo, block_sizes, global_stack_shape)
         dense = dsbsparse.to_dense()
         rows, cols = dsbsparse.spy()
         row, col, __ = _unsign_index(*accessed_element, dense.shape[-1])
