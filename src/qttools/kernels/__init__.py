@@ -8,6 +8,7 @@ if xp.__name__ == "numpy":
     from qttools.kernels.numba import dsbsparse as dsbsparse_kernels
 
 elif xp.__name__ == "cupy":
+    from qttools.kernels.triton import dsbanded as dsbanded_kernels
     from qttools.kernels.cuda import dsbcoo as dsbcoo_kernels
     from qttools.kernels.cuda import dsbcsr as dsbcsr_kernels
     from qttools.kernels.cuda import dsbsparse as dsbsparse_kernels
