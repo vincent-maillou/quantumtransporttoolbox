@@ -4,7 +4,7 @@ import os
 from typing import Any, TypeAlias, TypeVar
 from warnings import warn
 
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, DTypeLike
 
 from qttools.__about__ import __version__
 
@@ -55,4 +55,4 @@ _DType = xp.dtype[_ScalarType]
 NDArray: TypeAlias = xp.ndarray[Any, _DType]
 
 
-__all__ = ["__version__", "xp", "sparse", "NDArray", "ArrayLike"]
+__all__ = ["__version__", "xp", "sparse", "NDArray", "ArrayLike", "DTypeLike"]
