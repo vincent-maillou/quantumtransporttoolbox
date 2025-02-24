@@ -7,6 +7,7 @@ from qttools.datastructures import DSBCOO, DSBCSR, DSBSparse, DSBanded, ShortNFa
 
 DSBSPARSE_TYPES = [DSBCSR, DSBCOO]
 DSBANDED_TYPES = [DSBanded, ShortNFat]
+DSBANDED_MATMUL_TYPES = [(DSBanded, ShortNFat)]
 
 BLOCK_SIZES = [
     pytest.param(xp.array([2] * 10), id="constant-block-size"),
@@ -56,6 +57,13 @@ BLOCK_CHANGE_FACTORS = [
     # pytest.param(2.0, id="double-change"),
 ]
 
+HALF_BANDWIDTH = [
+    pytest.param(1, id="half-bandwidth"),
+    pytest.param(2, id="full-bandwidth"),
+    pytest.param(5, id="full-bandwidth"),
+    pytest.param(10, id="full-bandwidth"),
+]
+
 
 @pytest.fixture(params=BLOCK_SIZES, autouse=True)
 def block_sizes(request: pytest.FixtureRequest) -> NDArray:
@@ -72,13 +80,8 @@ def dsbanded_type(request: pytest.FixtureRequest) -> DSBSparse:
     return request.param
 
 
-@pytest.fixture(params=DSBANDED_TYPES)
-def dsbanded_type_a(request: pytest.FixtureRequest) -> DSBSparse:
-    return request.param
-
-
-@pytest.fixture(params=DSBANDED_TYPES)
-def dsbanded_type_b(request: pytest.FixtureRequest) -> DSBSparse:
+@pytest.fixture(params=DSBANDED_MATMUL_TYPES)
+def dsbanded_matmul_type(request: pytest.FixtureRequest) -> DSBSparse:
     return request.param
 
 
@@ -114,4 +117,9 @@ def stack_index(request: pytest.FixtureRequest) -> tuple:
 
 @pytest.fixture(params=BLOCK_CHANGE_FACTORS)
 def block_change_factor(request):
+    return request.param
+
+
+@pytest.fixture(params=HALF_BANDWIDTH)
+def half_bandwidth(request):
     return request.param
