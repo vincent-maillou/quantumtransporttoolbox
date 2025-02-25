@@ -9,14 +9,18 @@ DSBSPARSE_TYPES = [DSBCSR, DSBCOO]
 DSBANDED_TYPES = [DSBanded, ShortNFat]
 DSBANDED_MATMUL_TYPES = [(DSBanded, ShortNFat)]
 
-BLOCK_SIZES = [
-    pytest.param(xp.array([2] * 10), id="constant-block-size"),
-    pytest.param(xp.array([2] * 3 + [4] * 2 + [2] * 3), id="mixed-block-size"),
+SMALL_BLOCK_SIZES = [
+    pytest.param(xp.array([2] * 10), id="constant-block-size-2"),
+    pytest.param(xp.array([5] * 10), id="constant-block-size-5"),
+    pytest.param(xp.array([2] * 3 + [4] * 2 + [2] * 3), id="mixed-block-size-2"),
+    pytest.param(xp.array([5] * 3 + [10] * 2 + [5] * 3), id="mixed-block-size-5"),
 ]
 
-BIG_BLOCK_SIZES = [
-    pytest.param(xp.array([200] * 10), id="big-constant-block-size"),
-    pytest.param(xp.array([200] * 3 + [400] * 2 + [200] * 3), id="big-mixed-block-size"),
+LARGE_BLOCK_SIZES = [
+    pytest.param(xp.array([200] * 10), id="large-constant-block-size-200"),
+    pytest.param(xp.array([500] * 10), id="large-constant-block-size-500"),
+    pytest.param(xp.array([200] * 3 + [400] * 2 + [200] * 3), id="large-mixed-block-size-200"),
+    pytest.param(xp.array([500] * 3 + [1000] * 2 + [500] * 3), id="large-mixed-block-size-500"),
 ]
 
 DENSIFY_BLOCKS = [
@@ -77,18 +81,28 @@ HALF_BANDWIDTHS = [
 ]
 
 
-@pytest.fixture(params=BLOCK_SIZES, autouse=True)
+class BlockSizes:
+    def __init__(self):
+        if xp.__name__ == "cupy":
+            memory_pool = xp.get_default_memory_pool()
+            if memory_pool.free_bytes() > 1e10:
+                self.sizes = LARGE_BLOCK_SIZES
+                return
+        self.sizes = SMALL_BLOCK_SIZES
+
+
+# @pytest.fixture(params=SMALL_BLOCK_SIZES)
+# def small_block_sizes(request: pytest.FixtureRequest) -> NDArray:
+#     return request.param
+
+
+# @pytest.fixture(params=LARGE_BLOCK_SIZES)
+# def large_block_sizes(request: pytest.FixtureRequest) -> NDArray:
+#     return request.param
+
+
+@pytest.fixture(params=BlockSizes().sizes, autouse=True)
 def block_sizes(request: pytest.FixtureRequest) -> NDArray:
-    return request.param
-
-
-@pytest.fixture(params=BIG_BLOCK_SIZES)
-def big_block_sizes(request: pytest.FixtureRequest) -> NDArray:
-    return request.param
-
-
-@pytest.fixture(params=BLOCK_SIZES+BIG_BLOCK_SIZES)
-def all_block_sizes(request: pytest.FixtureRequest) -> NDArray:
     return request.param
 
 
