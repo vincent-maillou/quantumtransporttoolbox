@@ -38,8 +38,8 @@ ACCESSED_BLOCKS = [
 
 ACCESSED_ELEMENTS = [
     pytest.param((0, 0), id="first-element"),
-    # pytest.param((-1, -1), id="last-element"),
-    # pytest.param((2, -7), id="random-element"),
+    pytest.param((-1, -1), id="last-element"),
+    pytest.param((2, -7), id="random-element"),
 ]
 
 GLOBAL_STACK_SHAPES = [
@@ -50,20 +50,20 @@ GLOBAL_STACK_SHAPES = [
 
 NUM_INDS = [
     pytest.param(5, id="5-inds"),
-    # pytest.param(10, id="10-inds"),
-    # pytest.param(20, id="20-inds"),
+    pytest.param(10, id="10-inds"),
+    pytest.param(20, id="20-inds"),
 ]
 
 STACK_INDICES = [
     pytest.param((5,), id="single"),
-    # pytest.param((slice(1, 4),), id="slice"),
-    # pytest.param((Ellipsis,), id="ellipsis"),
+    pytest.param((slice(1, 4),), id="slice"),
+    pytest.param((Ellipsis,), id="ellipsis"),
 ]
 
 BLOCK_CHANGE_FACTORS = [
     pytest.param(1.0, id="no-change"),
-    # pytest.param(0.5, id="half-change"),
-    # pytest.param(2.0, id="double-change"),
+    pytest.param(0.5, id="half-change"),
+    pytest.param(2.0, id="double-change"),
 ]
 
 BANDED_BLOCK_SIZES = [
