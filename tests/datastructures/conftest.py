@@ -101,6 +101,25 @@ class BlockSizes:
         self.sizes = SMALL_BLOCK_SIZES
 
 
+class DTypes:
+    def __init__(self):
+        self.dtypes = [(xp, xp.float16)]
+        if xp.__name__ == "cupy":
+            properties = xp.cuda.runtime.getDeviceProperties(0)
+            arch = properties["major"] * 10 + properties["minor"]
+            if arch >= 90:
+                try:
+                    import torch
+                    self.dtypes = []
+                    self.dtypes.append((torch, torch.float32))
+                    self.dtypes.append((torch, torch.bfloat16))
+                    self.dtypes.append((torch, torch.float16))
+                    self.dtypes.append((torch, torch.float8_e4m3fn))
+                    self.dtypes.append((torch, torch.float8_e5m2))
+                except (ImportError, AttributeError):
+                    self.dtypes.append((xp, xp.float32))
+
+
 @pytest.fixture(params=BlockSizes().sizes, autouse=True)
 def block_sizes(request: pytest.FixtureRequest) -> NDArray:
     return request.param
@@ -163,4 +182,9 @@ def banded_block_size(request):
 
 @pytest.fixture(params=HALF_BANDWIDTHS)
 def half_bandwidth(request):
+    return request.param
+
+
+@pytest.fixture(params=DTypes().dtypes)
+def dtype(request):
     return request.param
