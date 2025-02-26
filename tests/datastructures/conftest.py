@@ -101,16 +101,6 @@ class BlockSizes:
         self.sizes = SMALL_BLOCK_SIZES
 
 
-# @pytest.fixture(params=SMALL_BLOCK_SIZES)
-# def small_block_sizes(request: pytest.FixtureRequest) -> NDArray:
-#     return request.param
-
-
-# @pytest.fixture(params=LARGE_BLOCK_SIZES)
-# def large_block_sizes(request: pytest.FixtureRequest) -> NDArray:
-#     return request.param
-
-
 @pytest.fixture(params=BlockSizes().sizes, autouse=True)
 def block_sizes(request: pytest.FixtureRequest) -> NDArray:
     return request.param
