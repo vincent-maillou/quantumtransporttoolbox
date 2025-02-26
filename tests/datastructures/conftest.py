@@ -3,11 +3,11 @@
 import pytest
 
 from qttools import NDArray, xp
-from qttools.datastructures import DSBCOO, DSBCSR, DSBSparse, DSBanded, ShortNFat
+from qttools.datastructures import DSBCOO, DSBCSR, DSBSparse, TallNSkinny, ShortNFat
 
 DSBSPARSE_TYPES = [DSBCSR, DSBCOO]
-DSBANDED_TYPES = [DSBanded, ShortNFat]
-DSBANDED_MATMUL_TYPES = [(DSBanded, ShortNFat)]
+DSBANDED_TYPES = [TallNSkinny, ShortNFat]
+DSBANDED_MATMUL_TYPES = [(TallNSkinny, ShortNFat)]
 
 SMALL_BLOCK_SIZES = [
     pytest.param(xp.array([2] * 10), id="constant-block-size-2"),
