@@ -4,7 +4,7 @@ from qttools import xp
 
 if xp.__name__ == "numpy":
     # TODO: We need CPU-compatible implementation for DSBanded kernels
-    from qttools.kernels.triton import dsbanded as dsbanded_kernels
+    dsbanded_kernels = None
     from qttools.kernels.numba import dsbcoo as dsbcoo_kernels
     from qttools.kernels.numba import dsbcsr as dsbcsr_kernels
     from qttools.kernels.numba import dsbsparse as dsbsparse_kernels
