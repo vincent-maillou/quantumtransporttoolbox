@@ -3,6 +3,8 @@
 from qttools import xp
 
 if xp.__name__ == "numpy":
+    # TODO: We need CPU-compatible implementation for DSBanded kernels
+    from qttools.kernels.triton import dsbanded as dsbanded_kernels
     from qttools.kernels.numba import dsbcoo as dsbcoo_kernels
     from qttools.kernels.numba import dsbcsr as dsbcsr_kernels
     from qttools.kernels.numba import dsbsparse as dsbsparse_kernels
@@ -17,4 +19,4 @@ else:
     raise ValueError(f"Unrecognized ARRAY_MODULE '{xp.__name__}'")
 
 
-__all__ = ["dsbsparse_kernels", "dsbcoo_kernels", "dsbcsr_kernels", "obc_kernels"]
+__all__ = ["dsbsparse_kernels", "dsbcoo_kernels", "dsbcsr_kernels", "dsbanded_kernels", "obc_kernels"]
